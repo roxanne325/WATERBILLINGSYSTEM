@@ -86,12 +86,9 @@ public class config {
             System.out.println("Error adding record: " + e.getMessage());
         }
     }
-    // Inside Config/config.java, add this method under the CRUD section:
 
-// NEW: Method to add a record and return the generated ID (essential for billing foreign keys)
 public int addRecordAndGetId(String sql, Object... values) {
     int generatedId = -1;
-    // Use Statement.RETURN_GENERATED_KEYS to get the last inserted row ID
     try (Connection conn = this.connectDB(); 
          PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
 
@@ -100,7 +97,7 @@ public int addRecordAndGetId(String sql, Object... values) {
 
         try (ResultSet rs = pstmt.getGeneratedKeys()) {
             if (rs.next()) {
-                generatedId = rs.getInt(1); // SQLite returns the row ID at index 1
+                generatedId = rs.getInt(1); 
             }
         }
     } catch (SQLException e) {

@@ -20,17 +20,17 @@ public class User {
     public void userDashboard() {
         int choice;
         do {
-            System.out.println("\n--- User Dashboard ---");
+            System.out.println("================= USER MENU =================");
             System.out.println("1. View Bills");
             System.out.println("2. Make Payment");
             System.out.println("3. Logout");
-            System.out.print("Enter choice: ");
+            System.out.println("-----------------------------------------------");
+            System.out.print("Enter your choice: ");
 
             try {
                 choice = sc.nextInt();
                 sc.nextLine(); 
             } catch (java.util.InputMismatchException e) {
-                System.out.println("Invalid input. Please enter a number.");
                 sc.nextLine();
                 choice = 0;
             }
@@ -44,90 +44,111 @@ public class User {
                     break;
                 case 3:
                     System.out.println("Logging out...");
-                    return; 
+                    System.out.println("-----------------------------------------------------");
+                    System.out.println("Returning to Main Menu...");
+                    return;
                 default:
-                    System.out.println("Invalid option. Please try again.");
             }
         } while (choice != 3);
     }
 
     private void viewBills() {
-        String sql = "SELECT bill_id, amount_due, due_date, status FROM tbl_bill WHERE user_id = ?";
-        String[] headers = {"Bill ID", "Amount", "Due Date", "Status"};
-        String[] columns = {"bill_id", "amount_due", "due_date", "status"};
+        System.out.println("================= BILL RECORDS =================");
         
-        System.out.println("\n--- Your Bill Records ---");
-        dbConfig.viewRecords(sql, headers, columns, this.userId); 
+        String sql = "SELECT T1.bill_id, T3.reading_date, T3.consumption, T1.amount_due, T1.status " +
+                     "FROM tbl_bill T1 " +
+                     "JOIN tbl_meter_reading T3 ON T1.reading_id = T3.reading_id " +
+                     "WHERE T1.user_id = ?";
+        
+        String[] headers = {"Bill ID", "Reading Date", "Consumption", "Amount", "Status"};
+        String[] columns = {"bill_id", "reading_date", "consumption", "amount_due", "status"};
+
+        dbConfig.viewRecords(sql, headers, columns, this.userId);
+
+        System.out.println("\nReturning to User Menu...");
     }
 
     private void makePayment() {
-        viewBills();
-        
-        System.out.print("Enter Bill ID for payment: ");
+        System.out.println("================= PAYMENT SECTION =================");
+        System.out.print("Enter Bill ID to Pay: ");
         int billId;
         try {
             billId = sc.nextInt();
             sc.nextLine();
         } catch (java.util.InputMismatchException e) {
-            System.out.println("Invalid Bill ID.");
             sc.nextLine();
+            System.out.println("-----------------------------------------------------");
+            System.out.println("Returning to User Menu...");
             return;
         }
 
         String billSql = "SELECT amount_due, status FROM tbl_bill WHERE bill_id = ? AND user_id = ?";
-        List<Map<String, Object>> billDetails = dbConfig.fetchRecords(billSql, billId, this.userId);
+        List<Map<String, Object>> bills = dbConfig.fetchRecords(billSql, billId, this.userId);
 
-        if (billDetails.isEmpty()) {
-            System.out.println("Bill ID not found or does not belong to your account.");
+        if (bills.isEmpty()) {
+            System.out.println("-----------------------------------------------------");
+            System.out.println("Returning to User Menu...");
             return;
         }
 
-        Map<String, Object> bill = billDetails.get(0);
-        double dueAmount = 0.0;
-        Object amountObj = bill.get("amount_due");
-        if (amountObj instanceof Number) {
-             dueAmount = ((Number) amountObj).doubleValue();
-        } else {
-            System.out.println("Error: Could not read bill amount.");
+        Map<String, Object> bill = bills.get(0);
+        
+        Object amountDueObject = bill.get("amount_due");
+        double amountDue;
+        
+        try {
+            if (amountDueObject instanceof Double) {
+                amountDue = (Double) amountDueObject;
+            } else if (amountDueObject instanceof Integer) {
+                amountDue = ((Integer) amountDueObject).doubleValue();
+            } else {
+                amountDue = Double.parseDouble(amountDueObject.toString());
+            }
+        } catch (NumberFormatException | NullPointerException e) {
+            System.out.println("\nError: Could not read the bill amount.");
+            System.out.println("-----------------------------------------------------");
+            System.out.println("Returning to User Menu...");
             return;
         }
         
         String status = (String) bill.get("status");
 
-        if (status.equals("Paid")) {
-            System.out.println("This bill is already paid.");
+        if (status.equalsIgnoreCase("PAID")) {
+            System.out.println("-----------------------------------------------------");
+            System.out.println("Returning to User Menu...");
             return;
         }
-        
-        System.out.printf("Amount Due: $%.2f\n", dueAmount);
+
+        System.out.print("Enter Payment Method (Cash/GCash): ");
+        String method = sc.nextLine();
         System.out.print("Enter Amount Paid: ");
         double amountPaid;
         try {
-            amountPaid = sc.nextDouble();
+            amountPaid = sc.nextDouble(); 
             sc.nextLine();
         } catch (java.util.InputMismatchException e) {
-            System.out.println("Invalid amount entered.");
             sc.nextLine();
+            System.out.println("-----------------------------------------------------");
+            System.out.println("Returning to User Menu...");
             return;
         }
+
+        System.out.println("Verifying payment...");
         
-        if (amountPaid < dueAmount) {
-            System.out.println("Insufficient amount. Payment failed.");
-            return; 
+        if (amountPaid >= amountDue) {
+            String updateBillSql = "UPDATE tbl_bill SET status = 'PAID' WHERE bill_id = ?";
+            dbConfig.updateRecord(updateBillSql, billId);
+
+            String paymentSql = "INSERT INTO tbl_payment (bill_id, amount_paid, payment_method) VALUES (?, ?, ?)";
+            dbConfig.addRecord(paymentSql, billId, amountPaid, method);
+
+            System.out.println("\nPayment successful!");
+            System.out.println("Bill #" + billId + " has been marked as PAID.");
+        } else {
+            System.out.println("\nPayment Failed: Amount paid is less than amount due.");
         }
         
-        System.out.print("Enter Payment Method (e.g., Cash, Card, Online): ");
-        String paymentMethod = sc.nextLine();
-        
-        String updateBillSql = "UPDATE tbl_bill SET status = 'Paid' WHERE bill_id = ?";
-        dbConfig.updateRecord(updateBillSql, billId);
-
-        String paymentSql = "INSERT INTO tbl_payment (bill_id, amount_paid, payment_method) VALUES (?, ?, ?)";
-        dbConfig.addRecord(paymentSql, billId, dueAmount, paymentMethod); 
-        
-        System.out.println("\n--- Payment Confirmation ---");
-        System.out.println("Bill ID: " + billId);
-        System.out.printf("Amount Paid: $%.2f\n", dueAmount);
-        System.out.println("Payment successful! Thank you.");
+        System.out.println("-----------------------------------------------------");
+        System.out.println("Returning to User Menu...");
     }
 }
