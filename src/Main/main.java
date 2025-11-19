@@ -1,151 +1,137 @@
 package Main;
 
+import java.util.*;
+import java.time.*;
+import java.time.format.DateTimeFormatter;
 import Config.config;
-import java.util.List;
-import java.util.Map;
-import java.util.Scanner;
 
 public class main {
+    private static Scanner scanner = new Scanner(System.in);
+    private static config cfg = new config();
 
     public static void main(String[] args) {
-        config dbConfig = new config();
-        Scanner sc = new Scanner(System.in);
+        System.out.println("=== WELCOME TO WATER BILLING SYSTEM ===");
+        ensureDefaultAdminExists();
 
-        dbConfig.connectDB(); 
-
-        int choice;
-        do {
-            System.out.println("====================================================================");
-            System.out.println("              WELCOME TO WATER BILLING SYSTEM");
-            System.out.println("====================================================================");
-            System.out.println("1. Register");
-            System.out.println("2. Login");
+        while (true) {
+            System.out.println("\nMain Menu:");
+            System.out.println("1. Login");
+            System.out.println("2. Register (Customer)");
             System.out.println("3. Exit");
-            System.out.println("--------------------------------------------------------------------");
-            System.out.print("Enter your choice: ");
+            System.out.print("Choose option: ");
+            String opt = scanner.nextLine().trim();
 
-            try {
-                choice = sc.nextInt();
-                sc.nextLine(); 
-            } catch (java.util.InputMismatchException e) {
-                sc.nextLine(); 
-                choice = 0;
-            }
-
-            switch (choice) {
-                case 1:
-                    handleRegistration(dbConfig, sc);
+            switch (opt) {
+                case "1":
+                    login();
                     break;
-                case 2:
-                    handleLogin(dbConfig, sc);
+                case "2":
+                    registerUser();
                     break;
-                case 3:
-                    System.out.println("\nThank you for using Water Billing System!");
-                    System.out.println("Goodbye and have a nice day!");
-                    System.out.println("====================================================================");
-                    break;
+                case "3":
+                    System.out.println("Goodbye.");
+                    System.exit(0);
                 default:
+                    System.out.println("Invalid option. Try again.");
             }
-        } while (choice != 3);
-        
-        sc.close();
+        }
     }
 
-    private static void handleRegistration(config dbConfig, Scanner sc) {
-        System.out.println("================= USER REGISTRATION =================");
-        System.out.print("Enter Full Name: ");
-        String name = sc.nextLine();
-        System.out.print("Enter Email: ");
-        String email = sc.nextLine();
-        System.out.print("Enter Address: ");
-        String address = sc.nextLine();
-        System.out.print("Enter Contact Number: ");
-        String contact = sc.nextLine();
-        System.out.print("Enter Password: ");
-        String passwordInput = sc.nextLine(); 
-        System.out.println("Enter Password: *****");
+    private static void ensureDefaultAdminExists() {
+        String sql = "SELECT COUNT(*) as cnt FROM tbl_user WHERE u_type = 'Admin'";
+        List<Map<String, Object>> rows = cfg.fetchRecords(sql);
+        int cnt = 0;
+        if (!rows.isEmpty()) {
+            Object o = rows.get(0).get("cnt");
+            if (o != null) cnt = Integer.parseInt(String.valueOf(o));
+        }
+        if (cnt == 0) {
+            String defaultPass = "Admin@123";
+            String hashed = config.hashPassword(defaultPass);
+            String insert = "INSERT INTO tbl_user (u_name, u_address, u_email, u_pass, u_type, u_status) VALUES (?, ?, ?, ?, 'Admin', 'Active')";
+            cfg.addRecord(insert, "System Admin", "N/A", "admin@admin.com", hashed);
+            System.out.println("Default admin created: admin@admin.com (password: Admin@123) — please change after login.");
+        }
+    }
 
-        String finalUserType = "User"; 
-        String userStatus = "Pending"; 
+    private static void login() {
+        System.out.print("Email: ");
+        String email = scanner.nextLine().trim();
+        System.out.print("Password: ");
+        String password = scanner.nextLine();
 
-        String checkSql = "SELECT user_id FROM tbl_user WHERE u_email = ?";
-        if (!dbConfig.fetchRecords(checkSql, email).isEmpty()) {
-            System.out.println("\nRegistration Failed: This email is already registered.");
-            System.out.println("-----------------------------------------------------");
-            System.out.println("Returning to Main Menu...");
+        if (email.isEmpty() || password.isEmpty()) {
+            System.out.println("Email and password required.");
             return;
         }
 
-        String hashedPassword = config.hashPassword("12345"); 
-        
-        String sql = "INSERT INTO tbl_user (u_name, u_address, u_contact, u_email, u_pass, u_type, u_status) VALUES (?, ?, ?, ?, ?, ?, ?)";
-        
-        dbConfig.addRecord(sql, name, address, contact, email, hashedPassword, finalUserType, userStatus);
-        
-        System.out.println("\nAccount successfully created!");
-        System.out.println("Please wait for admin approval.");
-        System.out.println("-----------------------------------------------------");
-        System.out.println("Returning to Main Menu...");
-    }
-
-    private static void handleLogin(config dbConfig, Scanner sc) {
-        System.out.println("\n---");
-        System.out.println("================= LOGIN =================");
-        System.out.print("Enter Email: ");
-        String email = sc.nextLine();
-        System.out.print("Enter Password: ");
-        String passwordInput = sc.nextLine(); 
-        System.out.println("Enter Password: *****"); 
-
-        System.out.println("Checking credentials...");
-
-        String actualPassword;
-        if (email.equals("maria.santos@gmail.com")) {
-            actualPassword = "12345";
-        } else if (email.equals("admin@waterbill.com")) {
-            actualPassword = "adminpass";
-        } else {
-            actualPassword = passwordInput; 
-        }
-
-        String hashedPassword = config.hashPassword(actualPassword);
-        
-        String sql = "SELECT user_id, u_type, u_status, u_name FROM tbl_user WHERE u_email = ? AND u_pass = ?";
-        List<Map<String, Object>> result = dbConfig.fetchRecords(sql, email, hashedPassword);
-
-        if (result.isEmpty()) {
-            System.out.println("\nLogin Failed: Invalid email or password.");
-            System.out.println("-----------------------------------------------------");
-            System.out.println("Returning to Main Menu...");
+        String sql = "SELECT user_id, u_name, u_email, u_pass, u_type, u_status FROM tbl_user WHERE u_email = ?";
+        List<Map<String, Object>> users = cfg.fetchRecords(sql, email);
+        if (users.isEmpty()) {
+            System.out.println("No user found with that email.");
             return;
         }
+        Map<String, Object> user = users.get(0);
+        String storedHash = (String) user.get("u_pass");
+        String inputHash = config.hashPassword(password);
+        if (storedHash == null || !storedHash.equals(inputHash)) {
+            System.out.println("Incorrect password.");
+            return;
+        }
+        String status = (String) user.get("u_status");
+        if (!"Approved".equalsIgnoreCase(status)) {
+        System.out.println("Your account is not approved yet. Current status: " + status);
+        return;
+        }
 
-        Map<String, Object> user = result.get(0);
-        int userId = (int) user.get("user_id");
+        int userId = Integer.parseInt(String.valueOf(user.get("user_id")));
         String userType = (String) user.get("u_type");
-        String userStatus = (String) user.get("u_status");
-        String userName = (String) user.get("u_name");
+        String name = (String) user.get("u_name");
+        System.out.println("Login successful. Welcome, " + name + " (" + userType + ")");
 
+        if ("Admin".equalsIgnoreCase(userType)) {
+            Admin admin = new Admin(userId, name);
+            admin.menu();
+        } else {
+            User u = new User(userId, name);
+            u.menu();
+        }
+    }
 
-        if (!userStatus.equals("Approved")) {
-            System.out.println("\nAccount Status: " + userStatus.toUpperCase() + " APPROVAL.");
-            System.out.println("Please wait for the administrator to approve your account.");
-            System.out.println("-----------------------------------------------------");
-            System.out.println("Returning to Main Menu...");
+    private static void registerUser() {
+        System.out.println("=== Register New Customer ===");
+        System.out.print("Full Name: ");
+        String name = scanner.nextLine().trim();
+        System.out.print("Address: ");
+        String address = scanner.nextLine().trim();
+        System.out.print("Email: ");
+        String email = scanner.nextLine().trim();
+        System.out.print("Contact Number: ");
+        String contact = scanner.nextLine().trim();
+        System.out.print("Password: ");
+        String password = scanner.nextLine();
+
+        List<String> errors = new ArrayList<>();
+        if (name.isEmpty() || name.length() < 3) errors.add("Name must be at least 3 characters.");
+        if (address.isEmpty()) errors.add("Address required.");
+        if (!Validators.isValidEmail(email)) errors.add("Invalid email format.");
+        if (!Validators.isValidContact(contact)) errors.add("Contact must be 7-15 digits.");
+        if (!Validators.isValidPassword(password)) errors.add("Password must be min 8 chars, include uppercase, lowercase, digit and special char.");
+
+        String chk = "SELECT user_id FROM tbl_user WHERE u_email = ?";
+        List<Map<String, Object>> exists = cfg.fetchRecords(chk, email);
+        if (!exists.isEmpty()) errors.add("Email already in use.");
+
+        if (!errors.isEmpty()) {
+            System.out.println("Registration failed due to following:");
+            for (String e : errors) System.out.println("- " + e);
             return;
         }
 
-        System.out.println("\nLogin successful!");
-        System.out.println("-----------------------------------------------------");
-        
-        if (userType.equals("Admin")) {
-            System.out.println("Welcome, Admin!");
-            Admin adminApp = new Admin(dbConfig, sc, userId);
-            adminApp.adminDashboard(userName); 
-        } else if (userType.equals("User")) {
-            System.out.println("Welcome, " + userName + ".");
-            User userApp = new User(dbConfig, sc, userId);
-            userApp.userDashboard();
-        }
+        String hashed = config.hashPassword(password);
+        String sql = "INSERT INTO tbl_user (u_name, u_address, u_email, u_pass, u_type, u_status) VALUES (?, ?, ?, ?, 'User', 'Pending')";
+
+        cfg.addRecord(sql, name, address + " | Contact: " + contact, email, hashed);
+        System.out.println("Registration successful. You may now login.");
     }
 }

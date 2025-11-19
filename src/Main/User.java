@@ -1,154 +1,101 @@
 package Main;
 
+import java.util.*;
+import java.time.*;
 import Config.config;
-import java.util.List;
-import java.util.Map;
-import java.util.Scanner;
 
 public class User {
+    private int userId;
+    private String name;
+    private Scanner scanner = new Scanner(System.in);
+    private config cfg = new config();
 
-    private final config dbConfig;
-    private final Scanner sc;
-    private final int userId; 
-
-    public User(config dbConfig, Scanner sc, int userId) {
-        this.dbConfig = dbConfig;
-        this.sc = sc;
-        this.userId = userId;
+    public User(int id, String name) {
+        this.userId = id;
+        this.name = name;
     }
 
-    public void userDashboard() {
-        int choice;
-        do {
-            System.out.println("================= USER MENU =================");
-            System.out.println("1. View Bills");
-            System.out.println("2. Make Payment");
-            System.out.println("3. Logout");
-            System.out.println("-----------------------------------------------");
-            System.out.print("Enter your choice: ");
-
-            try {
-                choice = sc.nextInt();
-                sc.nextLine(); 
-            } catch (java.util.InputMismatchException e) {
-                sc.nextLine();
-                choice = 0;
+    public void menu() {
+        while (true) {
+            System.out.println("\n=== USER DASHBOARD ===");
+            System.out.println("1. View Profile");
+            System.out.println("2. View My Meter Readings");
+            System.out.println("3. View My Bills");
+            System.out.println("4. Pay a Bill");
+            System.out.println("5. Logout");
+            System.out.print("Choose: ");
+            String opt = scanner.nextLine().trim();
+            switch (opt) {
+                case "1": viewProfile(); break;
+                case "2": viewReadings(); break;
+                case "3": viewBills(); break;
+                case "4": payBill(); break;
+                case "5": return;
+                default: System.out.println("Invalid option.");
             }
+        }
+    }
 
-            switch (choice) {
-                case 1:
-                    viewBills();
-                    break;
-                case 2:
-                    makePayment();
-                    break;
-                case 3:
-                    System.out.println("Logging out...");
-                    System.out.println("-----------------------------------------------------");
-                    System.out.println("Returning to Main Menu...");
-                    return;
-                default:
-            }
-        } while (choice != 3);
+    private void viewProfile() {
+        String sql = "SELECT user_id, u_name, u_address, u_email, u_type, u_status FROM tbl_user WHERE user_id = ?";
+        List<Map<String,Object>> rows = cfg.fetchRecords(sql, userId);
+        if (rows.isEmpty()) { System.out.println("Profile not found."); return; }
+        Map<String,Object> u = rows.get(0);
+        System.out.println("---- Profile ----");
+        System.out.println("User ID: " + u.get("user_id"));
+        System.out.println("Name: " + u.get("u_name"));
+        System.out.println("Address: " + u.get("u_address"));
+        System.out.println("Email: " + u.get("u_email"));
+        System.out.println("Type: " + u.get("u_type"));
+        System.out.println("Status: " + u.get("u_status"));
+    }
+
+    private void viewReadings() {
+        String sql = "SELECT reading_id, previous_reading, current_reading, consumption, reading_date FROM tbl_meter_reading WHERE user_id = ? ORDER BY reading_date DESC";
+        String[] h = {"Reading ID","Prev","Current","Consumption","Date"};
+        String[] c = {"reading_id","previous_reading","current_reading","consumption","reading_date"};
+        cfg.viewRecords(sql, h, c, userId);
     }
 
     private void viewBills() {
-        System.out.println("================= BILL RECORDS =================");
-        
-        String sql = "SELECT T1.bill_id, T3.reading_date, T3.consumption, T1.amount_due, T1.status " +
-                     "FROM tbl_bill T1 " +
-                     "JOIN tbl_meter_reading T3 ON T1.reading_id = T3.reading_id " +
-                     "WHERE T1.user_id = ?";
-        
-        String[] headers = {"Bill ID", "Reading Date", "Consumption", "Amount", "Status"};
-        String[] columns = {"bill_id", "reading_date", "consumption", "amount_due", "status"};
-
-        dbConfig.viewRecords(sql, headers, columns, this.userId);
-
-        System.out.println("\nReturning to User Menu...");
+        String sql = "SELECT bill_id, reading_id, billing_month, amount_due, due_date, status FROM tbl_bill WHERE user_id = ? ORDER BY due_date DESC";
+        String[] h = {"Bill ID","Reading ID","Month","Amount","Due Date","Status"};
+        String[] c = {"bill_id","reading_id","billing_month","amount_due","due_date","status"};
+        cfg.viewRecords(sql, h, c, userId);
     }
 
-    private void makePayment() {
-        System.out.println("================= PAYMENT SECTION =================");
-        System.out.print("Enter Bill ID to Pay: ");
-        int billId;
-        try {
-            billId = sc.nextInt();
-            sc.nextLine();
-        } catch (java.util.InputMismatchException e) {
-            sc.nextLine();
-            System.out.println("-----------------------------------------------------");
-            System.out.println("Returning to User Menu...");
-            return;
+    private void payBill() {
+        System.out.print("Enter bill id to pay: ");
+        String bidS = scanner.nextLine().trim();
+        if (!Validators.isInteger(bidS)) { System.out.println("Invalid id."); return; }
+        int bid = Integer.parseInt(bidS);
+
+        String chk = "SELECT bill_id, amount_due, status FROM tbl_bill WHERE bill_id = ? AND user_id = ?";
+        List<Map<String,Object>> rows = cfg.fetchRecords(chk, bid, userId);
+        if (rows.isEmpty()) { System.out.println("Bill not found or not yours."); return; }
+        Map<String,Object> bill = rows.get(0);
+        if ("Paid".equalsIgnoreCase(String.valueOf(bill.get("status")))) { System.out.println("Bill already paid."); return; }
+        double due = Double.parseDouble(String.valueOf(bill.get("amount_due")));
+        System.out.println("Amount due: " + due);
+        System.out.print("Amount to pay now: ");
+        String amtS = scanner.nextLine().trim();
+        if (!Validators.isDouble(amtS)) { System.out.println("Invalid amount."); return; }
+        double amt = Double.parseDouble(amtS);
+        if (amt <= 0) { System.out.println("Must be positive."); return; }
+        if (amt > due) {
+            System.out.print("Overpay and mark as paid? (y/n): ");
+            String a = scanner.nextLine().trim();
+            if (!"y".equalsIgnoreCase(a)) { System.out.println("Payment cancelled."); return; }
         }
+        System.out.print("Payment method: ");
+        String method = scanner.nextLine().trim();
+        if (method.isEmpty()) method = "Cash";
 
-        String billSql = "SELECT amount_due, status FROM tbl_bill WHERE bill_id = ? AND user_id = ?";
-        List<Map<String, Object>> bills = dbConfig.fetchRecords(billSql, billId, this.userId);
-
-        if (bills.isEmpty()) {
-            System.out.println("-----------------------------------------------------");
-            System.out.println("Returning to User Menu...");
-            return;
-        }
-
-        Map<String, Object> bill = bills.get(0);
-        
-        Object amountDueObject = bill.get("amount_due");
-        double amountDue;
-        
-        try {
-            if (amountDueObject instanceof Double) {
-                amountDue = (Double) amountDueObject;
-            } else if (amountDueObject instanceof Integer) {
-                amountDue = ((Integer) amountDueObject).doubleValue();
-            } else {
-                amountDue = Double.parseDouble(amountDueObject.toString());
-            }
-        } catch (NumberFormatException | NullPointerException e) {
-            System.out.println("\nError: Could not read the bill amount.");
-            System.out.println("-----------------------------------------------------");
-            System.out.println("Returning to User Menu...");
-            return;
-        }
-        
-        String status = (String) bill.get("status");
-
-        if (status.equalsIgnoreCase("PAID")) {
-            System.out.println("-----------------------------------------------------");
-            System.out.println("Returning to User Menu...");
-            return;
-        }
-
-        System.out.print("Enter Payment Method (Cash/GCash): ");
-        String method = sc.nextLine();
-        System.out.print("Enter Amount Paid: ");
-        double amountPaid;
-        try {
-            amountPaid = sc.nextDouble(); 
-            sc.nextLine();
-        } catch (java.util.InputMismatchException e) {
-            sc.nextLine();
-            System.out.println("-----------------------------------------------------");
-            System.out.println("Returning to User Menu...");
-            return;
-        }
-
-        System.out.println("Verifying payment...");
-        
-        if (amountPaid >= amountDue) {
-            String updateBillSql = "UPDATE tbl_bill SET status = 'PAID' WHERE bill_id = ?";
-            dbConfig.updateRecord(updateBillSql, billId);
-
-            String paymentSql = "INSERT INTO tbl_payment (bill_id, amount_paid, payment_method) VALUES (?, ?, ?)";
-            dbConfig.addRecord(paymentSql, billId, amountPaid, method);
-
-            System.out.println("\nPayment successful!");
-            System.out.println("Bill #" + billId + " has been marked as PAID.");
-        } else {
-            System.out.println("\nPayment Failed: Amount paid is less than amount due.");
-        }
-        
-        System.out.println("-----------------------------------------------------");
-        System.out.println("Returning to User Menu...");
+        String insert = "INSERT INTO tbl_payment (bill_id, amount_paid, payment_method) VALUES (?, ?, ?)";
+        int pid = cfg.addRecordAndGetId(insert, bid, amt, method);
+        if (pid <= 0) { System.out.println("Payment failed."); return; }
+        String upd = "UPDATE tbl_bill SET status = 'Paid' WHERE bill_id = ?";
+        cfg.updateRecord(upd, bid);
+        System.out.println("Payment successful. Thank you!");
     }
 }
